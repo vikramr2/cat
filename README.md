@@ -18,6 +18,6 @@ Traditionally, BERT models use masked-token prediction to learn embeddings. This
 In this part, depending on the type of clustering, we use contrastive learning to distinguish pairs that might be part of same of different communities:
 
 - **disjoint/overlapping**: select metadata of two nodes belonging to the same community, then select a node belonging to a different community, then use triplet loss
-- **hierarchical**: select metadata from 3 nodes $u,v,w$ such that given their leaf to leaf (l2l) distance, $l2l(u,v)<l2l(u,w)$ and $l2l(u,v)<l2l(v,w)$m then use hierarchical triplet loss.
+- **hierarchical**: select metadata from 3 nodes $u,v,w$ such that given their leaf to leaf (l2l) distance, $l2l(u,v)<l2l(u,w)$ and $l2l(u,v)<l2l(v,w)$ then use hierarchical triplet loss.
 
 Selection is done via uniform random sampling given the above constraints. 
