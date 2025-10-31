@@ -2,6 +2,8 @@
 
 CAT (Community Augmented Transformers) uses an alternative fine tuning method to 'augment' encoder-only transformers with network community structural information, without the use of an exoplicit GNN architecture.
 
+![cat_diagram](assets/cat_diagram.png)
+
 ## Approach
 
 CAT has two steps:
