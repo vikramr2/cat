@@ -5,10 +5,11 @@ from tqdm import tqdm
 from Bio import Entrez # type: ignore
 from transformers import AutoTokenizer, AutoModel
 import torch
+from sys import argv
 
-embedding_dir = "/projects/illinois/eng/shared/shared/CS598GCK-SP25/vikram_ruining_project/data/pubmed_embeddings/"
-pmid_table = "/projects/illinois/eng/shared/shared/CS598GCK-SP25/vikram_ruining_project/data/cen/metadata/cen_pmids_filtered.csv"
-num_chunks = 38
+embedding_dir = argv[1]  # e.g., "/path/to/embedding_dir/"
+pmid_table = argv[2]  # e.g., "/path/to/pmid_table.csv"
+num_chunks = int(argv[3])  # e.g., 38
 
 def load_pmids(embedding_dir, index):
     """
