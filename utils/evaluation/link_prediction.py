@@ -86,7 +86,12 @@ def evaluate_link_prediction_topk(
     # Get node degrees
     node_degrees = get_node_degree(edgelist_df)
 
-    results = {k: {'precision': [], 'recall': [], 'hit_rate': []} for k in k_values}
+    results = {k: {
+        'precision': [],
+        'precision_normalized': [],
+        'recall': [], 
+        'hit_rate': []
+    } for k in k_values}
 
     for test_node in tqdm(test_nodes, desc="Evaluating nodes"):
         # Get true neighbors
@@ -114,10 +119,12 @@ def evaluate_link_prediction_topk(
             true_positives = len(set(top_k_nodes) & set(true_neighbors))
 
             precision = true_positives / k if k > 0 else 0
+            precision_normalized = true_positives / min(k, len(true_neighbors)) if len(true_neighbors) > 0 else 0
             recall = true_positives / len(true_neighbors) if len(true_neighbors) > 0 else 0
             hit_rate = 1.0 if true_positives > 0 else 0.0
 
             results[k]['precision'].append(precision)
+            results[k]['precision_normalized'].append(precision_normalized)
             results[k]['recall'].append(recall)
             results[k]['hit_rate'].append(hit_rate)
 
@@ -126,6 +133,7 @@ def evaluate_link_prediction_topk(
     for k in k_values:
         summary[k] = {
             'precision@k': np.mean(results[k]['precision']),
+            'precision_normalized@k': np.mean(results[k]['precision_normalized']),
             'recall@k': np.mean(results[k]['recall']),
             'hit_rate@k': np.mean(results[k]['hit_rate']),
             'num_nodes': len(results[k]['precision'])
@@ -281,9 +289,11 @@ def plot_link_prediction_results(topk_results, auc_results=None):
     ax = axes[0]
     k_values = topk_results['k_values']
     precisions = [topk_results['summary'][k]['precision@k'] for k in k_values]
+    precisions_normalized = [topk_results['summary'][k]['precision_normalized@k'] for k in k_values]
     recalls = [topk_results['summary'][k]['recall@k'] for k in k_values]
 
     ax.plot(k_values, precisions, marker='o', linewidth=2, label='Precision@K', color='#2ecc71')
+    ax.plot(k_values, precisions_normalized, marker='o', linewidth=2, label='Precision Normalized@K', color='#dba634')
     ax.plot(k_values, recalls, marker='s', linewidth=2, label='Recall@K', color='#3498db')
     ax.set_xlabel('K (Number of retrieved neighbors)', fontsize=12)
     ax.set_ylabel('Score', fontsize=12)
@@ -435,6 +445,7 @@ def evaluate_network_link_prediction(
         summary = results['topk']['summary'][k]
         print(f"  K={k}:")
         print(f"    Precision@{k}: {summary['precision@k']:.4f}")
+        print(f"    Precision Normalized@{k}: {summary['precision_normalized@k']:.4f}")
         print(f"    Recall@{k}: {summary['recall@k']:.4f}")
         print(f"    Hit Rate@{k}: {summary['hit_rate@k']:.4f}")
 
