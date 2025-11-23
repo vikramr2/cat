@@ -1,4 +1,5 @@
 finetuned_hierarchical_scibert/
+*notebook_cells.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
