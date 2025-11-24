@@ -1,3 +1,4 @@
+models/
 finetuned_hierarchical_scibert/
 *notebook_cells.py
 
