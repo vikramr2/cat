@@ -13,7 +13,12 @@ from transformers import AutoTokenizer
 from tree_utils import HierarchicalTree
 from dataset import HierarchicalTripletDataset
 from model import TripletEmbeddingModel
-from losses import AdaptiveMarginTripletLoss, HierarchicalContrastiveLoss
+from losses import (
+    AdaptiveMarginTripletLoss,
+    SoftAdaptiveTripletLoss,
+    HierarchicalContrastiveLoss,
+    HybridHierarchicalLoss
+)
 from trainer import train_epoch, evaluate
 
 
@@ -35,6 +40,9 @@ def train_model(
     train_split=0.9,
     loss_type='adaptive_triplet',
     temperature=0.07,
+    triplet_weight=0.7,
+    regression_weight=0.3,
+    max_tree_distance=None,
     val_nodes=None
 ):
     """
@@ -56,8 +64,16 @@ def train_model(
         sampling_strategy: 'hierarchical' or 'sibling'
         pooling: 'cls' or 'mean'
         train_split: Train/val split ratio (ignored if val_nodes provided)
-        loss_type: 'adaptive_triplet' or 'contrastive'
-        temperature: Temperature for contrastive loss
+        loss_type: Loss function to use. Options:
+                   - 'adaptive_triplet': AdaptiveMarginTripletLoss (default, hard margin)
+                   - 'soft_adaptive': SoftAdaptiveTripletLoss (smooth margin, helps with overfitting)
+                   - 'contrastive': HierarchicalContrastiveLoss (cross-entropy based)
+                   - 'hybrid': HybridHierarchicalLoss (combines triplet + regression)
+        temperature: Temperature parameter for soft_adaptive and contrastive losses
+        triplet_weight: Weight for triplet component in hybrid loss (default: 0.7)
+        regression_weight: Weight for regression component in hybrid loss (default: 0.3)
+        max_tree_distance: Maximum tree distance for hybrid loss normalization.
+                          If None, computed from tree max_depth
         val_nodes: Optional list of node IDs to use for validation.
                    If provided, ensures validation uses these specific nodes.
 
@@ -147,20 +163,54 @@ def train_model(
     )
 
     # Loss function and optimizer
-    if loss_type == 'contrastive':
+    print(f"\nConfiguring loss function...")
+
+    if loss_type == 'soft_adaptive':
+        loss_fn = SoftAdaptiveTripletLoss(
+            base_margin=base_margin,
+            distance_scale=distance_scale,
+            temperature=temperature
+        )
+        print(f"Loss: SoftAdaptiveTripletLoss")
+        print(f"  Base margin: {base_margin}")
+        print(f"  Distance scale: {distance_scale}")
+        print(f"  Temperature: {temperature}")
+
+    elif loss_type == 'contrastive':
         loss_fn = HierarchicalContrastiveLoss(
             temperature=temperature,
             distance_scale=distance_scale
         )
-        print(f"\nLoss: HierarchicalContrastiveLoss")
+        print(f"Loss: HierarchicalContrastiveLoss")
         print(f"  Temperature: {temperature}")
         print(f"  Distance scale: {distance_scale}")
-    else:  # adaptive_triplet
+
+    elif loss_type == 'hybrid':
+        # Compute max_tree_distance if not provided
+        if max_tree_distance is None:
+            max_tree_distance = float(tree.max_depth)
+            print(f"  Auto-detected max_tree_distance: {max_tree_distance}")
+
+        loss_fn = HybridHierarchicalLoss(
+            base_margin=base_margin,
+            distance_scale=distance_scale,
+            max_tree_distance=max_tree_distance,
+            triplet_weight=triplet_weight,
+            regression_weight=regression_weight
+        )
+        print(f"Loss: HybridHierarchicalLoss")
+        print(f"  Base margin: {base_margin}")
+        print(f"  Distance scale: {distance_scale}")
+        print(f"  Max tree distance: {max_tree_distance}")
+        print(f"  Triplet weight: {triplet_weight}")
+        print(f"  Regression weight: {regression_weight}")
+
+    else:  # adaptive_triplet (default)
         loss_fn = AdaptiveMarginTripletLoss(
             base_margin=base_margin,
             distance_scale=distance_scale
         )
-        print(f"\nLoss: AdaptiveMarginTripletLoss")
+        print(f"Loss: AdaptiveMarginTripletLoss")
         print(f"  Base margin: {base_margin}")
         print(f"  Distance scale: {distance_scale}")
 
