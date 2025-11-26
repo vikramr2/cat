@@ -52,7 +52,7 @@ class HierarchicalTripletDataset(Dataset):
             return f"Document {leaf_name}"
 
     def _generate_triplets(self, samples_per_leaf: int) -> List[Tuple]:
-        """Generate (anchor, positive, negative, dist_pos, dist_neg) tuples"""
+        """Generate (anchor, positive, negative, dist_pos, dist_neg, anchor_id) tuples"""
         triplets = []
         leaf_names = list(self.tree.leaves.keys())
 
@@ -71,7 +71,8 @@ class HierarchicalTripletDataset(Dataset):
 
                 triplets.append((
                     anchor_text, pos_text, neg_text,
-                    float(dist_pos), float(dist_neg)
+                    float(dist_pos), float(dist_neg),
+                    leaf_name  # Store anchor node ID for splitting
                 ))
 
         return triplets
@@ -80,7 +81,7 @@ class HierarchicalTripletDataset(Dataset):
         return len(self.triplets)
 
     def __getitem__(self, idx):
-        anchor, positive, negative, dist_pos, dist_neg = self.triplets[idx]
+        anchor, positive, negative, dist_pos, dist_neg, anchor_id = self.triplets[idx]
 
         # Tokenize
         anchor_encoded = self.tokenizer(

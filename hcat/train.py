@@ -13,7 +13,7 @@ from transformers import AutoTokenizer
 from tree_utils import HierarchicalTree
 from dataset import HierarchicalTripletDataset
 from model import TripletEmbeddingModel
-from losses import AdaptiveMarginTripletLoss
+from losses import AdaptiveMarginTripletLoss, HierarchicalContrastiveLoss
 from trainer import train_epoch, evaluate
 
 
@@ -32,7 +32,10 @@ def train_model(
     samples_per_leaf=3,
     sampling_strategy='hierarchical',
     pooling='cls',
-    train_split=0.9
+    train_split=0.9,
+    loss_type='adaptive_triplet',
+    temperature=0.07,
+    val_nodes=None
 ):
     """
     Train hierarchical triplet loss model
@@ -52,7 +55,11 @@ def train_model(
         samples_per_leaf: Triplets per leaf
         sampling_strategy: 'hierarchical' or 'sibling'
         pooling: 'cls' or 'mean'
-        train_split: Train/val split ratio
+        train_split: Train/val split ratio (ignored if val_nodes provided)
+        loss_type: 'adaptive_triplet' or 'contrastive'
+        temperature: Temperature for contrastive loss
+        val_nodes: Optional list of node IDs to use for validation.
+                   If provided, ensures validation uses these specific nodes.
 
     Returns:
         (model, tokenizer, history)
@@ -89,12 +96,42 @@ def train_model(
     print(f"  Generated {len(dataset)} triplets")
 
     # Split train/val
-    train_size = int(train_split * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        dataset, [train_size, val_size]
-    )
-    print(f"  Train: {len(train_dataset)} | Val: {len(val_dataset)}")
+    if val_nodes is not None:
+        # Node-level split: use provided validation nodes
+        print(f"  Using {len(val_nodes)} nodes for validation (node-level split)")
+
+        # Convert val_nodes to set for faster lookup
+        val_nodes_set = set(str(n) for n in val_nodes)
+
+        # Split triplets based on anchor node
+        train_indices = []
+        val_indices = []
+
+        for idx, triplet in enumerate(dataset.triplets):
+            # triplet is (anchor_text, pos_text, neg_text, dist_pos, dist_neg, anchor_id)
+            anchor_id = triplet[5]  # Last element is anchor node ID
+
+            if anchor_id in val_nodes_set:
+                val_indices.append(idx)
+            else:
+                train_indices.append(idx)
+
+        # Create subset datasets
+        train_dataset = torch.utils.data.Subset(dataset, train_indices)
+        val_dataset = torch.utils.data.Subset(dataset, val_indices)
+
+        print(f"  Train: {len(train_dataset)} triplets | Val: {len(val_dataset)} triplets")
+        print(f"  Train nodes: {len(set(str(n) for n in val_nodes)) - len(val_nodes_set)} (approx)")
+        print(f"  Val nodes: {len(val_nodes_set)}")
+    else:
+        # Random triplet-level split (original behavior)
+        print("  Using random triplet split for train/val")
+        train_size = int(train_split * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            dataset, [train_size, val_size]
+        )
+        print(f"  Train: {len(train_dataset)} | Val: {len(val_dataset)}")
 
     train_loader = DataLoader(
         train_dataset,
@@ -110,13 +147,22 @@ def train_model(
     )
 
     # Loss function and optimizer
-    loss_fn = AdaptiveMarginTripletLoss(
-        base_margin=base_margin,
-        distance_scale=distance_scale
-    )
-    print(f"\nLoss: AdaptiveMarginTripletLoss")
-    print(f"  Base margin: {base_margin}")
-    print(f"  Distance scale: {distance_scale}")
+    if loss_type == 'contrastive':
+        loss_fn = HierarchicalContrastiveLoss(
+            temperature=temperature,
+            distance_scale=distance_scale
+        )
+        print(f"\nLoss: HierarchicalContrastiveLoss")
+        print(f"  Temperature: {temperature}")
+        print(f"  Distance scale: {distance_scale}")
+    else:  # adaptive_triplet
+        loss_fn = AdaptiveMarginTripletLoss(
+            base_margin=base_margin,
+            distance_scale=distance_scale
+        )
+        print(f"\nLoss: AdaptiveMarginTripletLoss")
+        print(f"  Base margin: {base_margin}")
+        print(f"  Distance scale: {distance_scale}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
