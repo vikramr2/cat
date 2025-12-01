@@ -206,3 +206,158 @@ class HybridHierarchicalLoss(nn.Module):
                      self.regression_weight * regression)
 
         return total_loss
+
+
+class HierarchicalContrastiveLoss(nn.Module):
+    """
+    Contrastive loss with hierarchical distance weighting.
+
+    Uses InfoNCE-style loss where:
+    - Positives are weighted by inverse tree distance (closer = stronger pull)
+    - Negatives are weighted by tree distance (farther = stronger push)
+    - Temperature controls the concentration of the distribution
+    """
+
+    def __init__(self, temperature: float = 0.07, distance_scale: float = 0.01):
+        """
+        Args:
+            temperature: Temperature parameter for contrastive loss
+                        Lower = harder (more peaked), Higher = softer
+            distance_scale: How much to weight by tree distance
+                          Lower = less influence, Higher = more influence
+        """
+        super().__init__()
+        self.temperature = temperature
+        self.distance_scale = distance_scale
+
+    def forward(
+        self,
+        anchor: torch.Tensor,
+        positive: torch.Tensor,
+        negative: torch.Tensor,
+        tree_dist_pos: torch.Tensor,
+        tree_dist_neg: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute hierarchical contrastive loss.
+
+        Args:
+            anchor: Anchor embeddings [batch_size, embed_dim]
+            positive: Positive embeddings [batch_size, embed_dim]
+            negative: Negative embeddings [batch_size, embed_dim]
+            tree_dist_pos: Tree distance to positive [batch_size]
+            tree_dist_neg: Tree distance to negative [batch_size]
+
+        Returns:
+            Scalar loss
+        """
+        # Embeddings are already normalized in the model
+        # Compute cosine similarities
+        pos_sim = torch.sum(anchor * positive, dim=1) / self.temperature
+        neg_sim = torch.sum(anchor * negative, dim=1) / self.temperature
+
+        # Weight similarities by tree distances
+        # Closer positives should be easier to pull together
+        # Farther negatives should be pushed apart more
+        pos_weight = 1.0 / (1.0 + self.distance_scale * tree_dist_pos)
+        neg_weight = 1.0 + self.distance_scale * tree_dist_neg
+
+        # Apply weights
+        weighted_pos_sim = pos_sim * pos_weight
+        weighted_neg_sim = neg_sim * neg_weight
+
+        # Stack to create logits [batch_size, 2]
+        # The goal is to classify positive as index 0
+        logits = torch.stack([weighted_pos_sim, weighted_neg_sim], dim=1)
+
+        # Labels: positive is always at index 0
+        labels = torch.zeros(logits.shape[0], dtype=torch.long).to(logits.device)
+
+        # Cross-entropy loss
+        loss = F.cross_entropy(logits, labels)
+
+        return loss
+
+
+class SupConLoss(nn.Module):
+    """
+    Supervised Contrastive Loss adapted for hierarchical data.
+
+    Uses all examples in the batch as potential positives/negatives,
+    weighted by their tree distances.
+    """
+
+    def __init__(self, temperature: float = 0.07, distance_scale: float = 0.01):
+        """
+        Args:
+            temperature: Temperature for scaling similarities
+            distance_scale: How much to weight by tree distance
+        """
+        super().__init__()
+        self.temperature = temperature
+        self.distance_scale = distance_scale
+
+    def forward(
+        self,
+        anchor: torch.Tensor,
+        positive: torch.Tensor,
+        negative: torch.Tensor,
+        tree_dist_pos: torch.Tensor,
+        tree_dist_neg: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute supervised contrastive loss with in-batch examples.
+
+        Args:
+            anchor: Anchor embeddings [batch_size, embed_dim]
+            positive: Positive embeddings [batch_size, embed_dim]
+            negative: Negative embeddings [batch_size, embed_dim]
+            tree_dist_pos: Tree distance to positive [batch_size]
+            tree_dist_neg: Tree distance to negative [batch_size]
+
+        Returns:
+            Scalar loss
+        """
+        batch_size = anchor.shape[0]
+
+        # Concatenate anchor with all positives and negatives in batch
+        # This creates a pool of examples to contrast against
+        all_examples = torch.cat([positive, negative], dim=0)  # [2*batch_size, embed_dim]
+
+        # Compute similarities between anchors and all examples
+        # anchor: [batch_size, embed_dim]
+        # all_examples: [2*batch_size, embed_dim]
+        # similarity: [batch_size, 2*batch_size]
+        similarity = torch.matmul(anchor, all_examples.t()) / self.temperature
+
+        # Create weights based on tree distances
+        # First batch_size are positives, rest are negatives
+        all_distances = torch.cat([tree_dist_pos, tree_dist_neg], dim=0)  # [2*batch_size]
+
+        # Expand distances for broadcasting: [batch_size, 2*batch_size]
+        all_distances_expanded = all_distances.unsqueeze(0).expand(batch_size, -1)
+
+        # Create mask for positives (first batch_size columns)
+        pos_mask = torch.zeros(batch_size, 2 * batch_size).to(anchor.device)
+        pos_mask[:, :batch_size] = 1.0
+
+        # Weight positives inversely by distance (closer = higher weight)
+        pos_weights = 1.0 / (1.0 + self.distance_scale * all_distances_expanded)
+        pos_weights = pos_weights * pos_mask
+
+        # For each anchor, compute log-sum-exp over all examples
+        # But weight the positive contributions
+        exp_sim = torch.exp(similarity)
+
+        # Denominator: sum over all examples
+        log_denominator = torch.log(exp_sim.sum(dim=1, keepdim=True) + 1e-8)
+
+        # Numerator: weighted sum over positives
+        weighted_pos_sim = similarity * pos_weights
+        log_numerator = torch.logsumexp(weighted_pos_sim, dim=1, keepdim=True)
+
+        # Contrastive loss
+        loss = -log_numerator + log_denominator
+        loss = loss.mean()
+
+        return loss
