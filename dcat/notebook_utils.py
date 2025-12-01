@@ -42,7 +42,9 @@ def load_cluster_and_metadata(cluster_path, metadata_path):
 
 def compute_embeddings(model, tokenizer, metadata_df, device, batch_size=32, max_length=512):
     """
-    Compute embeddings for all nodes in metadata.
+    Compute embeddings for all nodes in metadata using BASE MODEL.
+    This is used for baseline evaluation with pre-trained models.
+    
     Returns dict mapping node_id (str) -> embedding (numpy array)
     """
     embeddings_dict = {}
@@ -78,17 +80,70 @@ def compute_embeddings(model, tokenizer, metadata_df, device, batch_size=32, max
                 return_tensors="pt"
             ).to(device)
 
-            # Get embeddings from model
-            if hasattr(model, 'encoder'):
-                # Using TripletEmbeddingModel
-                embeddings = model(inputs['input_ids'], inputs['attention_mask'])
-            else:
-                # Using base model
-                outputs = model(**inputs)
-                embeddings = outputs.last_hidden_state[:, 0, :]
-                # Normalize
-                embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+            # Get model outputs
+            outputs = model(**inputs)
             
+            # Extract CLS token embeddings
+            embeddings = outputs.last_hidden_state[:, 0, :]
+            
+            # Normalize
+            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+            
+            # Convert to numpy
+            embeddings = embeddings.cpu().numpy()
+
+            for node_id, emb in zip(batch_ids, embeddings):
+                embeddings_dict[node_id] = emb
+
+    print(f"✓ Computed embeddings for {len(embeddings_dict)} nodes")
+    return embeddings_dict
+
+
+def compute_finetuned_embeddings(model, tokenizer, metadata_df, device, batch_size=32, max_length=512):
+    """
+    Compute embeddings for all nodes in metadata using FINE-TUNED MODEL.
+    This handles TripletEmbeddingModel which has custom forward pass.
+    
+    Returns dict mapping node_id (str) -> embedding (numpy array)
+    """
+    embeddings_dict = {}
+
+    # Prepare texts
+    node_ids = metadata_df['id'].astype(str).values
+    texts = []
+    valid_ids = []
+
+    print(f"Preparing {len(node_ids)} documents...")
+    for node_id in tqdm(node_ids, desc="Preparing"):
+        row = metadata_df[metadata_df['id'] == int(node_id)].iloc[0]
+        title = str(row['title']) if pd.notna(row['title']) else ""
+        abstract = str(row['abstract']) if pd.notna(row['abstract']) else ""
+        text = f"{title} {abstract}".strip()
+
+        if text:
+            texts.append(text)
+            valid_ids.append(node_id)
+
+    # Compute embeddings in batches
+    model.eval()
+    with torch.no_grad():
+        for i in tqdm(range(0, len(texts), batch_size), desc="Computing embeddings"):
+            batch_texts = texts[i:i+batch_size]
+            batch_ids = valid_ids[i:i+batch_size]
+
+            inputs = tokenizer(
+                batch_texts,
+                padding=True,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt"
+            ).to(device)
+
+            # TripletEmbeddingModel forward pass
+            # Already returns normalized embeddings
+            embeddings = model(inputs['input_ids'], inputs['attention_mask'])
+            
+            # Convert to numpy
             embeddings = embeddings.cpu().numpy()
 
             for node_id, emb in zip(batch_ids, embeddings):
