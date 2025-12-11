@@ -97,6 +97,76 @@ def create_induced_subgraph(
     return edge_index, node_to_idx, idx_to_node
 
 
+def create_train_only_graph(
+    edgelist_path: str,
+    train_node_ids: List[str]
+) -> Tuple[torch.Tensor, Dict[str, int], Dict[int, str]]:
+    """
+    Create graph containing ONLY training nodes with remapped indices.
+
+    Unlike create_induced_subgraph (which maps all nodes but only has train edges),
+    this creates a smaller graph with only train nodes and remapped indices 0..N-1.
+
+    Args:
+        edgelist_path: Path to CSV with columns [source, target]
+        train_node_ids: List of training node IDs (as strings)
+
+    Returns:
+        edge_index: Tensor of edges [2, num_edges] with indices 0..N-1
+        node_to_idx: Mapping from node_id (str) -> index (int) for TRAIN nodes only
+        idx_to_node: Mapping from index (int) -> node_id (str) for TRAIN nodes only
+    """
+    # Load full edgelist
+    print(f"Loading edgelist from {edgelist_path}...")
+    edgelist_df = pd.read_csv(edgelist_path)
+    print(f"  Full graph: {len(edgelist_df)} edges")
+
+    # Convert to string for consistency
+    edgelist_df['source'] = edgelist_df['source'].astype(str)
+    edgelist_df['target'] = edgelist_df['target'].astype(str)
+
+    # Create set of training nodes for fast lookup
+    train_nodes_set = set(train_node_ids)
+
+    # Filter to only edges between training nodes
+    print(f"\nFiltering to edges between {len(train_node_ids)} training nodes...")
+    filtered_edges = edgelist_df[
+        edgelist_df['source'].isin(train_nodes_set) &
+        edgelist_df['target'].isin(train_nodes_set)
+    ]
+    print(f"  Filtered edges: {len(filtered_edges)}")
+
+    # Create node index mapping for TRAIN NODES ONLY (0 to N-1)
+    train_node_list = sorted(train_node_ids)
+    node_to_idx = {node_id: idx for idx, node_id in enumerate(train_node_list)}
+    idx_to_node = {idx: node_id for node_id, idx in node_to_idx.items()}
+
+    print(f"\nNode mapping (train only):")
+    print(f"  Train nodes: {len(train_node_list)}")
+    print(f"  Index range: 0 to {len(train_node_list) - 1}")
+
+    # Convert edges to indices
+    edge_list = []
+    for _, row in filtered_edges.iterrows():
+        src_idx = node_to_idx[row['source']]
+        tgt_idx = node_to_idx[row['target']]
+
+        # Add both directions (undirected graph)
+        edge_list.append([src_idx, tgt_idx])
+        edge_list.append([tgt_idx, src_idx])
+
+    # Convert to tensor
+    if len(edge_list) > 0:
+        edge_index = torch.tensor(edge_list, dtype=torch.long).t()
+    else:
+        edge_index = torch.zeros((2, 0), dtype=torch.long)
+
+    print(f"\nFinal edge_index shape: {edge_index.shape}")
+    print(f"  Directed edges: {edge_index.shape[1]}")
+
+    return edge_index, node_to_idx, idx_to_node
+
+
 def analyze_graph_statistics(
     edge_index: torch.Tensor,
     train_node_ids: List[str],
