@@ -120,8 +120,9 @@ def train_gnn_epoch_full_graph(
 
     # Step 1: Encode ALL training nodes with transformer
     print("  Encoding all training nodes...")
-    node_list = [node_to_idx[i] for i in range(len(node_to_idx))]
+    # Create reverse mapping: index -> node_id
     idx_to_node = {idx: nid for nid, idx in node_to_idx.items()}
+    # Order nodes by their indices (0, 1, 2, ...)
     node_list_ordered = [idx_to_node[i] for i in range(len(idx_to_node))]
 
     texts = get_node_texts(node_list_ordered, metadata_df)
