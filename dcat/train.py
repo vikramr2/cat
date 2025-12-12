@@ -183,6 +183,10 @@ def train_model(
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
+    # Add learning rate scheduler with warmup
+    from torch.optim.lr_scheduler import CosineAnnealingLR
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr/10)
+
     # Training loop
     print(f"\n{'='*60}")
     print(f"Starting training for {epochs} epochs")
@@ -197,12 +201,16 @@ def train_model(
 
         train_loss = train_epoch(model, train_loader, loss_fn, optimizer, device)
         print(f"  Train loss: {train_loss:.4f}")
+        print(f"  Learning rate: {optimizer.param_groups[0]['lr']:.2e}")
 
         val_loss = evaluate(model, val_loader, loss_fn, device)
         print(f"  Val loss: {val_loss:.4f}")
 
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
+
+        # Step the scheduler
+        scheduler.step()
 
         # Save best model
         if val_loss < best_val_loss:
