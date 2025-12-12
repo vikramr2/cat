@@ -15,26 +15,26 @@ class DisjointClustering:
         Load clustering from DataFrame
 
         Args:
-            clustering_df: DataFrame with columns [node, cluster]
-                          where node is the node/document ID
-                          and cluster is the cluster it belongs to
+            clustering_df: DataFrame with columns [node_id, cluster_id]
+                          where node_id is the node/document ID
+                          and cluster_id is the cluster it belongs to
         """
         # Ensure both columns are strings for consistent lookups
         self.clustering_df = clustering_df.copy()
         self.clustering_df['node'] = self.clustering_df['node'].astype(str)
         self.clustering_df['cluster'] = self.clustering_df['cluster'].astype(str)
 
-        # Build lookup: node -> cluster
+        # Build lookup: node_id -> cluster_id
         self.node_to_cluster = dict(
             zip(self.clustering_df['node'], self.clustering_df['cluster'])
         )
 
-        # Build reverse lookup: cluster -> list of nodes
+        # Build reverse lookup: cluster_id -> list of node_ids
         self.cluster_to_nodes = {}
-        for node, cluster in self.node_to_cluster.items():
-            if cluster not in self.cluster_to_nodes:
-                self.cluster_to_nodes[cluster] = []
-            self.cluster_to_nodes[cluster].append(node)
+        for node_id, cluster_id in self.node_to_cluster.items():
+            if cluster_id not in self.cluster_to_nodes:
+                self.cluster_to_nodes[cluster_id] = []
+            self.cluster_to_nodes[cluster_id].append(node_id)
 
         # Store all unique node IDs and cluster IDs
         self.all_nodes = list(self.node_to_cluster.keys())
@@ -45,25 +45,25 @@ class DisjointClustering:
         print(f"  Total clusters: {len(self.all_clusters)}")
         print(f"  Avg cluster size: {len(self.all_nodes) / len(self.all_clusters):.1f}")
 
-    def get_cluster(self, node: str) -> Optional[str]:
+    def get_cluster_id(self, node_id: str) -> Optional[str]:
         """Get cluster ID for a given node"""
-        return self.node_to_cluster.get(str(node))
+        return self.node_to_cluster.get(str(node_id))
 
-    def get_nodes_in_cluster(self, cluster: str) -> List[str]:
+    def get_nodes_in_cluster(self, cluster_id: str) -> List[str]:
         """Get all nodes in a given cluster"""
-        return self.cluster_to_nodes.get(str(cluster), [])
+        return self.cluster_to_nodes.get(str(cluster_id), [])
 
-    def are_in_same_cluster(self, node1: str, node2: str) -> bool:
+    def are_in_same_cluster(self, node_id1: str, node_id2: str) -> bool:
         """Check if two nodes are in the same cluster"""
-        cluster1 = self.get_cluster(str(node1))
-        cluster2 = self.get_cluster(str(node2))
+        cluster1 = self.get_cluster_id(str(node_id1))
+        cluster2 = self.get_cluster_id(str(node_id2))
 
         if cluster1 is None or cluster2 is None:
             return False
 
         return cluster1 == cluster2
 
-    def cluster_distance(self, node1: str, node2: str) -> float:
+    def cluster_distance(self, node_id1: str, node_id2: str) -> float:
         """
         Compute distance between two nodes based on cluster membership.
 
@@ -71,7 +71,7 @@ class DisjointClustering:
             0.0 if nodes are in the same cluster
             1.0 if nodes are in different clusters
         """
-        return 0.0 if self.are_in_same_cluster(node1, node2) else 1.0
+        return 0.0 if self.are_in_same_cluster(node_id1, node_id2) else 1.0
 
     def sample_triplet_with_distances(
         self,
@@ -91,7 +91,7 @@ class DisjointClustering:
             (positive_id, negative_id, distance_to_positive, distance_to_negative)
         """
         anchor_id = str(anchor_id)
-        anchor_cluster = self.get_cluster(anchor_id)
+        anchor_cluster = self.get_cluster_id(anchor_id)
 
         if anchor_cluster is None:
             raise ValueError(f"Node {anchor_id} not found in clustering")
@@ -105,7 +105,7 @@ class DisjointClustering:
         # Get nodes in different clusters
         different_cluster_nodes = [
             n for n in self.all_nodes
-            if n != anchor_id and self.get_cluster(n) != anchor_cluster
+            if n != anchor_id and self.get_cluster_id(n) != anchor_cluster
         ]
 
         # Sample positive from same cluster
