@@ -91,8 +91,43 @@ def evaluate_cluster_classification(
     print(f"  Mean cluster size: {counts.mean():.1f}")
 
     if min_class_size < 2:
-        print(f"  Error: smallest cluster has only {min_class_size} sample(s)")
-        return {}
+        print(f"  Warning: smallest cluster has only {min_class_size} sample(s)")
+        print(f"  Falling back to evaluation on top 5 largest clusters...")
+
+        # Get cluster sizes
+        cluster_sizes = {}
+        for cluster_id in unique_clusters:
+            cluster_sizes[cluster_id] = sum(1 for label in y if label == cluster_to_label[cluster_id])
+
+        # Get top 5 largest clusters
+        top_clusters = sorted(cluster_sizes.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_cluster_ids = {cluster_id for cluster_id, _ in top_clusters}
+
+        print(f"  Top 5 clusters: {[f'{cid} (n={size})' for cid, size in top_clusters]}")
+
+        # Filter to only nodes in top clusters
+        filtered_nodes = []
+        for node_id in nodes:
+            cluster_id = node_labels[node_id]
+            if cluster_id in top_cluster_ids:
+                filtered_nodes.append(node_id)
+
+        if len(filtered_nodes) < cv_folds:
+            print(f"  Error: only {len(filtered_nodes)} nodes in top clusters (need at least {cv_folds})")
+            return {}
+
+        # Re-build X and y with only top clusters
+        nodes = filtered_nodes
+        X = np.array([embeddings_dict[n] for n in nodes])
+        y = np.array([cluster_to_label[node_labels[n]] for n in nodes])
+
+        # Re-compute class counts
+        unique, counts = np.unique(y, return_counts=True)
+        min_class_size = counts.min()
+        max_class_size = counts.max()
+
+        print(f"  Filtered to {len(nodes)} nodes across {len(unique)} clusters")
+        print(f"  Min cluster size: {min_class_size}, Max: {max_class_size}")
 
     # Use stratified k-fold if possible
     actual_folds = min(cv_folds, min_class_size)
