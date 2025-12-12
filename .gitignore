@@ -2,6 +2,7 @@
 models/
 finetuned_hierarchical_scibert/
 *notebook_cells.py
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
